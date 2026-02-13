@@ -57,6 +57,78 @@ const STRINGS = {
 // --- HELPERS ---
 const isValidPhone = (p) => /^\d{10}$/.test(p);
 
+const getClosedDays = (month, year) => {
+    const closedDays = [];
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    
+    for (let day = 1; day <= daysInMonth; day++) {
+        const date = new Date(year, month, day);
+        if (date.getDay() === 6) { // 6 = Saturday
+            closedDays.push(day);
+        }
+    }
+    
+    return closedDays;
+};
+
+const getNextOpenDay = () => {
+    let date = new Date();
+    const month = date.getMonth();
+    const year = date.getFullYear();
+    const closedDays = getClosedDays(month, year);
+    
+    while (closedDays.includes(date.getDate())) {
+        date.setDate(date.getDate() + 1);
+        if (date.getMonth() !== month) {
+            // If we've moved to the next month, recalculate closed days
+            const newMonth = date.getMonth();
+            const newYear = date.getFullYear();
+            closedDays.length = 0;
+            closedDays.push(...getClosedDays(newMonth, newYear));
+        }
+    }
+    
+    return date;
+};
+
+const getStartHour = (date) => {
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+
+  // Convert current time to decimal hours
+  const current = hours + minutes / 60;
+
+  // Round up to the next 15-minute interval
+  const nextQuarter = Math.ceil(current * 4) / 4;
+
+  // Clamp to allowed range
+  const MIN = 8.5; // 08:30
+  const MAX = 19;  // 19:00
+
+  return Math.min(Math.max(nextQuarter, MIN), MAX);
+};
+
+const generateSlots = (date, serviceDuration = 30) => {
+    const slots = [];
+    let start = getStartHour(date);
+    let end = 19.5;
+    const duration = serviceDuration / 60;
+    const increment = 0.25; // 15 minutes
+
+    for (let t = start; t < end; t += increment) {
+        // Check if there's enough time to complete the service from this start time
+        if (t + duration <= end) {
+            const h = Math.floor(t);
+            const m = Math.round((t % 1) * 60);
+            const slotStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+            if (!slots.includes(slotStr)) slots.push(slotStr);
+        }
+    }
+
+    return slots;
+};
+
+
 // --- COMPONENTS ---
 
 const HeaderLogo = ({ size = 'small' }) => (
@@ -166,10 +238,13 @@ const BookingFlow = ({ user, blockedSlots, onBook }) => {
     const [bookingData, setBookingData] = useState({
         barber: null,
         service: null,
-        date: new Date(),
+        date: getNextOpenDay(),
         time: null
     });
+
     const [confirmed, setConfirmed] = useState(false);
+    const [displayMonth, setDisplayMonth] = useState(new Date().getMonth());
+    const [displayYear, setDisplayYear] = useState(new Date().getFullYear());
     const scrollRef = useRef(null);
 
     const s = STRINGS[user.gender];
@@ -183,19 +258,8 @@ const BookingFlow = ({ user, blockedSlots, onBook }) => {
         }, 3000);
     };
 
-    const generateSlots = () => {
-        const slots = [];
-        let start = 8.5; // 08:30
-        let end = 19.5; 
-        const duration = (bookingData.service?.duration || 30) / 60;
-
-        for (let t = start; t < end; t += duration) {
-            const h = Math.floor(t);
-            const m = Math.round((t % 1) * 60);
-            const slotStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-            if (!slots.includes(slotStr)) slots.push(slotStr);
-        }
-        return slots;
+    const getSlots = () => {
+        return generateSlots(bookingData.date, bookingData.service?.duration || 30);
     };
 
     return (
@@ -203,27 +267,106 @@ const BookingFlow = ({ user, blockedSlots, onBook }) => {
             <HeaderLogo size="small" />
             <div style={{ padding: '24px', flex: 1, overflowY: 'auto' }} ref={scrollRef}>
                 
-                {/* 1. Calendar */}
+                {/* Calendar - Date Selection */}
                 <h3 className="section-title">{s.selectDate}</h3>
                 <div className="mini-calendar">
                     <div className="calendar-header">
-                        <span style={{ fontWeight: 'bold' }}>פברואר 2026</span>
+                        {(() => {
+                            const today = new Date();
+                            const currentMonth = today.getMonth();
+                            const currentYear = today.getFullYear();
+                            const canGoBack = displayYear > currentYear || (displayYear === currentYear && displayMonth > currentMonth);
+                            
+                            return (
+                                <>
+                                    <button 
+                                        onClick={() => {
+                                            if (displayMonth === 0) {
+                                                setDisplayMonth(11);
+                                                setDisplayYear(displayYear - 1);
+                                            } else {
+                                                setDisplayMonth(displayMonth - 1);
+                                            }
+                                        }} 
+                                        disabled={!canGoBack}
+                                        style={{ background: 'none', border: 'none', cursor: canGoBack ? 'pointer' : 'not-allowed', fontSize: '20px', padding: '0', opacity: canGoBack ? 1 : 0.3 }}>‹</button>
+                                    <span style={{ fontWeight: 'bold' }}>{new Date(displayYear, displayMonth).toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}</span>
+                                    <button 
+                                        onClick={() => {
+                                            if (displayMonth === 11) {
+                                                setDisplayMonth(0);
+                                                setDisplayYear(displayYear + 1);
+                                            } else {
+                                                setDisplayMonth(displayMonth + 1);
+                                            }
+                                        }} 
+                                        disabled={displayYear > currentYear || (displayYear === currentYear && displayMonth >= currentMonth + 1)}
+                                        style={{ background: 'none', border: 'none', cursor: displayYear > currentYear || (displayYear === currentYear && displayMonth >= currentMonth + 1) ? 'not-allowed' : 'pointer', fontSize: '20px', padding: '0', opacity: displayYear > currentYear || (displayYear === currentYear && displayMonth >= currentMonth + 1) ? 0.3 : 1 }}>›</button>
+                                </>
+                            );
+                        })()}
                     </div>
                     <div className="calendar-grid">
                         {['א','ב','ג','ד','ה','ו','ש'].map(d => <div key={d} className="day-header">{d}</div>)}
-                        {Array.from({ length: 28 }).map((_, i) => {
-                            const day = i + 1;
-                            const isClosed = [6, 13, 20, 27].includes(day);
-                            return (
-                                <div 
-                                    key={day} 
-                                    className={`day-cell ${isClosed ? 'dimmed' : ''} ${bookingData.date.getDate() === day ? 'active' : ''}`}
-                                    onClick={() => !isClosed && setBookingData({...bookingData, date: new Date(2026, 1, day)})}
-                                >
-                                    {day}
-                                </div>
-                            );
-                        })}
+                        {(() => {
+                            const firstDay = new Date(displayYear, displayMonth, 1).getDay();
+                            const daysInMonth = new Date(displayYear, displayMonth + 1, 0).getDate();
+                            const daysInPrevMonth = new Date(displayYear, displayMonth, 0).getDate();
+                            const closedDays = getClosedDays(displayMonth, displayYear);
+                            const today = new Date();
+                            const cells = [];
+                            
+                            // Days from previous month
+                            for (let i = firstDay - 1; i >= 0; i--) {
+                                const day = daysInPrevMonth - i;
+                                cells.push(
+                                    <div 
+                                        key={`prev-${day}`} 
+                                        className="day-cell dimmed"
+                                        style={{ opacity: 0.4 }}
+                                    >
+                                        {day}
+                                    </div>
+                                );
+                            }
+                            
+                            // Days of the current month
+                            for (let day = 1; day <= daysInMonth; day++) {
+                                const isClosed = closedDays.includes(day);
+                                const isPast = displayYear < today.getFullYear() || 
+                                              (displayYear === today.getFullYear() && displayMonth < today.getMonth()) ||
+                                              (displayYear === today.getFullYear() && displayMonth === today.getMonth() && day < today.getDate());
+                                const isSelected = bookingData.date.getDate() === day && 
+                                                   bookingData.date.getMonth() === displayMonth && 
+                                                   bookingData.date.getFullYear() === displayYear;
+                                const isToday = day === today.getDate() && 
+                                                displayMonth === today.getMonth() && 
+                                                displayYear === today.getFullYear();
+                                cells.push(
+                                    <div 
+                                        key={day} 
+                                        className={`day-cell ${isClosed || isPast ? 'dimmed' : ''} ${isSelected ? 'active' : ''} ${isToday && !isSelected ? 'today' : ''}`}
+                                        onClick={() => {
+                                            if (isClosed || isPast) return;
+
+                                            const newDate = isToday
+                                                ? new Date() // current date & time
+                                                : new Date(displayYear, displayMonth, day);
+
+                                            setBookingData({
+                                                ...bookingData,
+                                                date: newDate,
+                                                time: null,
+                                            });
+                                        }}
+                                    >
+                                        {day}
+                                    </div>
+                                );
+                            }
+                            
+                            return cells;
+                        })()}
                     </div>
                 </div>
 
@@ -231,7 +374,7 @@ const BookingFlow = ({ user, blockedSlots, onBook }) => {
                 <h3 className="section-title">{s.selectService}</h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '30px' }}>
                     {SERVICES.map(sv => (
-                        <div key={sv.id} className={`selection-item ${bookingData.service?.id === sv.id ? 'active' : ''}`} onClick={() => setBookingData({...bookingData, service: sv})} style={{ textAlign: 'right', display: 'flex', justifyContent: 'space-between' }}>
+                        <div key={sv.id} className={`selection-item ${bookingData.service?.id === sv.id ? 'active' : ''}`} onClick={() => setBookingData({...bookingData, service: sv, time: null})} style={{ textAlign: 'right', display: 'flex', justifyContent: 'space-between' }}>
                             <span>{sv.name}</span>
                             <span style={{ color: 'var(--text-muted)' }}>{sv.duration} דק'</span>
                         </div>
@@ -242,7 +385,7 @@ const BookingFlow = ({ user, blockedSlots, onBook }) => {
                 <h3 className="section-title">{s.selectBarber}</h3>
                 <div className="selection-grid" style={{ marginBottom: '30px' }}>
                     {BARBERS.map(b => (
-                        <div key={b.id} className={`selection-item ${bookingData.barber?.id === b.id ? 'active' : ''}`} onClick={() => setBookingData({...bookingData, barber: b})}>
+                        <div key={b.id} className={`selection-item ${bookingData.barber?.id === b.id ? 'active' : ''}`} onClick={() => setBookingData({...bookingData, barber: b, time: null})}>
                             <div style={{ width: '60px', height: '60px', background: '#DDD', borderRadius: '30px', margin: '0 auto 10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                 <User size={30} />
                             </div>
@@ -256,7 +399,7 @@ const BookingFlow = ({ user, blockedSlots, onBook }) => {
                     <>
                         <h3 className="section-title">{s.selectTime}</h3>
                         <div className="selection-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: '30px' }}>
-                            {generateSlots().map(t => (
+                            {getSlots().map(t => (
                                 <div key={t} className={`selection-item ${bookingData.time === t ? 'active' : ''}`} onClick={() => setBookingData({...bookingData, time: t})} style={{ padding: '10px 5px', fontSize: '13px' }}>
                                     {t}
                                 </div>
@@ -284,6 +427,8 @@ const ManagerView = ({ users, appointments, blockedSlots, toggleBlock }) => {
     const [tab, setTab] = useState('schedule');
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [search, setSearch] = useState('');
+    const [displayMonth, setDisplayMonth] = useState(new Date().getMonth());
+    const [displayYear, setDisplayYear] = useState(new Date().getFullYear());
 
     const filteredUsers = users.filter(u => u.name.includes(search) || u.phone.includes(search));
 
@@ -294,16 +439,11 @@ const ManagerView = ({ users, appointments, blockedSlots, toggleBlock }) => {
                 {tab === 'schedule' && (
                     <div>
                         <h2 className="section-title">לוח זמנים</h2>
-                        <div className="mini-calendar" style={{ marginBottom: '20px' }}>
-                             <div className="calendar-grid">
-                                {['א','ב','ג','ד','ה','ו','ש'].map(d => <div key={d} className="day-header">{d}</div>)}
-                                {[1,2,3,4,5,6,7].map(day => (
-                                    <div key={day} className={`day-cell ${selectedDate.getDate() === day ? 'active' : ''}`} onClick={() => setSelectedDate(new Date(2026, 1, day))}>{day}</div>
-                                ))}
-                             </div>
-                        </div>
-                        <h3 className="section-title" style={{ fontSize: '16px' }}>תורים להיום:</h3>
-                        {appointments.map((ap, i) => (
+                        <h3 className="section-title" style={{ fontSize: '16px' }}>תורים להיום {new Date().toLocaleDateString('he-IL')}:</h3>
+                        {appointments.filter(ap => {
+                            const today = new Date();
+                            return ap.client;
+                        }).map((ap, i) => (
                             <div key={i} className="client-card">
                                 <div className="gender-indicator" style={{ background: ap.client.gender === 'female' ? 'var(--female-color)' : 'var(--male-color)' }}></div>
                                 <div style={{ flex: 1 }}>
@@ -315,15 +455,114 @@ const ManagerView = ({ users, appointments, blockedSlots, toggleBlock }) => {
                                 </a>
                             </div>
                         ))}
+                        {appointments.length === 0 && (
+                            <p style={{ textAlign: 'center', color: '#AAA', marginTop: '40px' }}>אין תורים</p>
+                        )}
                     </div>
                 )}
 
                 {tab === 'availability' && (
                     <div>
                         <h2 className="section-title">ניהול זמינות</h2>
+                        <div className="mini-calendar" style={{ marginBottom: '20px' }}>
+                             <div className="calendar-header" style={{ marginBottom: '10px' }}>
+                                 {(() => {
+                                     const today = new Date();
+                                     const currentMonth = today.getMonth();
+                                     const currentYear = today.getFullYear();
+                                     const canGoBack = displayYear > currentYear || (displayYear === currentYear && displayMonth > currentMonth);
+                                     
+                                     return (
+                                         <>
+                                             <button 
+                                                 onClick={() => {
+                                                     if (displayMonth === 0) {
+                                                         setDisplayMonth(11);
+                                                         setDisplayYear(displayYear - 1);
+                                                     } else {
+                                                         setDisplayMonth(displayMonth - 1);
+                                                     }
+                                                 }} 
+                                                 disabled={!canGoBack}
+                                                 style={{ background: 'none', border: 'none', cursor: canGoBack ? 'pointer' : 'not-allowed', fontSize: '20px', padding: '0', opacity: canGoBack ? 1 : 0.3 }}>‹</button>
+                                             <span style={{ fontWeight: 'bold' }}>{new Date(displayYear, displayMonth).toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}</span>
+                                             <button 
+                                                 onClick={() => {
+                                                     if (displayMonth === 11) {
+                                                         setDisplayMonth(0);
+                                                         setDisplayYear(displayYear + 1);
+                                                     } else {
+                                                         setDisplayMonth(displayMonth + 1);
+                                                     }
+                                                 }} 
+                                                 disabled={displayYear > currentYear || (displayYear === currentYear && displayMonth >= currentMonth + 1)}
+                                                 style={{ background: 'none', border: 'none', cursor: displayYear > currentYear || (displayYear === currentYear && displayMonth >= currentMonth + 1) ? 'not-allowed' : 'pointer', fontSize: '20px', padding: '0', opacity: displayYear > currentYear || (displayYear === currentYear && displayMonth >= currentMonth + 1) ? 0.3 : 1 }}>›</button>
+                                         </>
+                                     );
+                                 })()}
+                             </div>
+                             <div className="calendar-grid">
+                                {['א','ב','ג','ד','ה','ו','ש'].map(d => <div key={d} className="day-header">{d}</div>)}
+                                {(() => {
+                                    const firstDay = new Date(displayYear, displayMonth, 1).getDay();
+                                    const daysInMonth = new Date(displayYear, displayMonth + 1, 0).getDate();
+                                    const daysInPrevMonth = new Date(displayYear, displayMonth, 0).getDate();
+                                    const closedDays = getClosedDays(displayMonth, displayYear);
+                                    const today = new Date();
+                                    const cells = [];
+                                    
+                                    // Days from previous month
+                                    for (let i = firstDay - 1; i >= 0; i--) {
+                                        const day = daysInPrevMonth - i;
+                                        cells.push(
+                                            <div 
+                                                key={`prev-${day}`} 
+                                                className="day-cell dimmed"
+                                                style={{ opacity: 0.4 }}
+                                            >
+                                                {day}
+                                            </div>
+                                        );
+                                    }
+                                    
+                                    for (let day = 1; day <= daysInMonth; day++) {
+                                        const isClosed = closedDays.includes(day);
+                                        const isPast = displayYear < today.getFullYear() || 
+                                                      (displayYear === today.getFullYear() && displayMonth < today.getMonth()) ||
+                                                      (displayYear === today.getFullYear() && displayMonth === today.getMonth() && day < today.getDate());
+                                        const isSelected = selectedDate.getDate() === day && 
+                                                           selectedDate.getMonth() === displayMonth && 
+                                                           selectedDate.getFullYear() === displayYear;
+                                        const isToday = day === today.getDate() && 
+                                                        displayMonth === today.getMonth() && 
+                                                        displayYear === today.getFullYear();
+                                        cells.push(
+                                            <div 
+                                                key={day} 
+                                                className={`day-cell ${isClosed || isPast ? 'dimmed' : ''} ${isSelected ? 'active' : ''} ${isToday && !isSelected ? 'today' : ''}`}
+                                                onClick={() => {
+                                                    if (isClosed || isPast) return;
+
+                                                    const newDate = isToday
+                                                        ? new Date() // current date & time
+                                                        : new Date(displayYear, displayMonth, day);
+
+                                                    setSelectedDate(newDate);
+                                                    }}
+                                            >
+                                                {day}
+                                            </div>
+                                        );
+                                    }
+                                    
+                                    return cells;
+                                })()}
+                             </div>
+                        </div>
                         <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '15px', textAlign: 'right' }}>לחץ על שעה כדי לחסום/לשחרר אותה</p>
+                        <h3 className="section-title" style={{ fontSize: '16px' }}>זמינות ל{selectedDate.toLocaleDateString('he-IL')}:</h3>
                         <div className="selection-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-                            {['08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '11:30', '12:00'].map(t => {
+                            {generateSlots(selectedDate, 30).map(t => {
                                 const isBlocked = blockedSlots[t];
                                 return (
                                     <div key={t} className={`selection-item ${isBlocked ? 'active' : ''}`} onClick={() => toggleBlock(t)} style={{ background: isBlocked ? '#E74C3C' : '#FFF', color: isBlocked ? '#FFF' : '#333', fontSize: '12px', padding: '10px 5px' }}>
@@ -434,7 +673,7 @@ export default function App() {
             <StatusBar />
             
             <AnimatePresence mode="wait">
-                {isManager ? (
+                {isManager ? (  
                     <motion.div key="mgr" style={{ height: '100%' }}>
                         <ManagerView users={users} appointments={appointments} blockedSlots={blockedSlots} toggleBlock={toggleBlock} />
                     </motion.div>
