@@ -433,7 +433,7 @@ const BookingFlow = ({ user, blockedSlots, onBook }) => {
     };
 
     return (
-        <div className="screen-container" style={{ padding: 0, background: '#FAFAFA', height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <div className="screen-container" style={{ padding: 0, background: '#FAFAFA', height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
             <HeaderLogo size="small" />
             <div style={{ padding: '0 20px 20px', flex: 1, overflowY: 'auto' }} ref={scrollRef}>
                 
@@ -748,23 +748,22 @@ const BookingFlow = ({ user, blockedSlots, onBook }) => {
                         initial={{ opacity: 0, scale: 0.9 }} 
                         animate={{ opacity: 1, scale: 1 }}  
                         exit={{ opacity: 0, scale: 0.9 }} 
+                        transformTemplate={(_, generated) => `translate(-50%, -50%) ${generated}`}
                         style={{ 
-                            position: 'fixed',
+                            position: 'absolute',
                             top: '50%',
-                            left: 0,
-                            right: 0,
-                            transform: 'translateY(-50%)',     
+                            left: '50%',
+                            right: 'auto',
                             background: '#fff', 
                             padding: '30px 24px', 
                             borderRadius: '24px', 
                             textAlign: 'center', 
                             boxShadow: '0 20px 60px rgba(53, 23, 23, 0.3)', 
                             zIndex: 1000,
-                            maxWidth: '90vw',
+                            maxWidth: '420px',
                             width: '90%',
                             maxHeight: '90vh',
-                            overflowY: 'auto',
-                            margin: '0 auto'
+                            overflowY: 'auto'
                         }}
                     >
                         <CheckCircle size={70} color="#27AE60" style={{ margin: '0 auto 24px' }} />
